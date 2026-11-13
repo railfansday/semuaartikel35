@@ -1,0 +1,72 @@
+name: Remove Multiline Canonical Tags
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  clean-canonical:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Hapus Tag Canonical Multiline & Sisa Domain Lama
+        run: |
+          python3 - << 'EOF'
+          import os
+          import re
+
+          # 1. Hapus tag <link ... canonical ...> meskipun terpotong beberapa baris (re.DOTALL)
+          canonical_tag_pattern = re.compile(
+              r'<link\b(?:(?!</link>).)*?\bcanonical\b[^>]*>\s*',
+              re.IGNORECASE | re.DOTALL
+          )
+
+          # 2. Hapus sisa baris/tag yang masih mengandung domain lama thenewsday112
+          old_domain_pattern = re.compile(
+              r'<link\b[^>]*thenewsday112[^>]*>\s*',
+              re.IGNORECASE | re.DOTALL
+          )
+
+          modified_count = 0
+
+          for root, dirs, files in os.walk("."):
+              if ".git" in root or ".github" in root:
+                  continue
+              for file in files:
+                  if file.endswith((".html", ".htm", ".py", ".js")):
+                      file_path = os.path.join(root, file)
+                      try:
+                          with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                              content = f.read()
+
+                          new_content, c1 = canonical_tag_pattern.subn("", content)
+                          new_content, c2 = old_domain_pattern.subn("", new_content)
+                          total_removed = c1 + c2
+
+                          if total_removed > 0:
+                              with open(file_path, "w", encoding="utf-8") as f:
+                                  f.write(new_content)
+                              print(f"--> Berhasil menghapus {total_removed} tag di: {file_path}")
+                              modified_count += 1
+                          elif "canonical" in content.lower():
+                              # Tampilkan baris yang mengandung kata canonical jika masih ada yang lolos
+                              for i, line in enumerate(content.splitlines(), 1):
+                                  if "canonical" in line.lower():
+                                      print(f"[INFO] Sisa kata canonical di {file_path} baris {i}: {line.strip()}")
+                      except Exception as e:
+                          print(f"Gagal memproses {file_path}: {e}")
+
+          print(f"Selesai! Total file yang dibersihkan: {modified_count}")
+          EOF
+
+      - name: Commit dan Push Perubahan
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "🧹 Remove remaining multiline canonical tags" || echo "Tidak ada perubahan yang perlu di-commit"
+          git push
